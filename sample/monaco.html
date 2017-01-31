@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+</head>
+<body>
+
+<div id="container" style="width:800px;height:600px;border:1px solid grey"></div>
+
+<script src="node_modules/yjs/dist/y.js" type="text/javascript" charset="utf-8"></script>
+<script src="node_modules/y-memory/dist/y-memory.js" type="text/javascript" charset="utf-8"></script>
+<script src="node_modules/y-websockets-client/dist/y-websockets-client.js" type="text/javascript" charset="utf-8"></script>
+<script src="node_modules/y-array/dist/y-array.js" type="text/javascript" charset="utf-8"></script>
+<script src="../dist/y-text.js" type="text/javascript" charset="utf-8"></script>
+
+<script src="https://microsoft.github.io/monaco-editor/node_modules/monaco-editor/min/vs/loader.js"></script>
+
+<script>
+    require.config({ paths: { 'vs': 'https://microsoft.github.io/monaco-editor/node_modules/monaco-editor/min/vs' }});
+    require(['vs/editor/editor.main'], function() {
+        var editor = monaco.editor.create(document.getElementById('container'), {
+            value: [
+                'function x() {',
+                '\tconsole.log("Hello world!");',
+                '}'
+            ].join('\n'),
+            language: 'javascript'
+        });
+        Y({
+            db: {
+                name: 'memory'
+            },
+            connector: {
+                name: 'websockets-client',
+                room: 'my-room'
+            },
+            share: {
+                textarea: 'Text'
+            }
+        }).then(function(y) {
+            y.share.textarea.bind(editor);
+        })
+    });
+</script>
+</body>
+</html>
