@@ -63,6 +63,7 @@ function extend (Y) {
 
         function aceCallback (delta) {
           mutualExcluse(function () {
+            console.log(delta)
             var start
             var length
 
@@ -85,6 +86,7 @@ function extend (Y) {
         function yCallback (event) {
           var aceDocument = ace.getSession().getDocument()
           mutualExcluse(function () {
+            console.log(event)
             if (event.type === 'insert') {
               let start = aceDocument.indexToPosition(event.index, 0)
               aceDocument.insert(start, event.values.join(''))
@@ -110,7 +112,7 @@ function extend (Y) {
         if (i >= 0) {
           const binding = this.monacoInstances[i]
           this.unobserve(binding.yCallback)
-          binding.monacoCallbackDisposable.dispose()
+          binding.monacoCallbackDisposables.forEach(d => d.dispose())
           this.monacoInstances.splice(i, 1)
         }
       }
@@ -139,18 +141,82 @@ function extend (Y) {
         }
         monaco.getModel().setValue(this.toString())
 
-        function monacoCallback (event) {
+        let ops = []
+        function monacoDidChangeModelContent (event) {
+          console.log(event)
           mutualExcluse(function () {
+            const hasMultiCursor = monaco.getSelections().length > 1;
+            const isUndoingOrRedoing = event.isUndoing || event.isRedoing
+            const isFirstEdit = ops.length == 0;
             const start = monaco.getModel().getOffsetAt({lineNumber: event.range.startLineNumber, column: event.range.startColumn}, 0)
-            if (event.rangeLength > 0) {
-              self.delete(start, event.rangeLength)
+            
+            function getDelPos() {
+              for (let i = ops.length; i>0; i--) {
+                if (ops[i].method == 'delete') return i+1
+              }
+              return 0
             }
-            if (event.text.length > 0) {
-              self.insert(start, event.text)
+
+            if (hasMultiCursor && !isUndoingOrRedoing) {
+              if (event.text.length > 0) {
+                ops.unshift({method: 'insert', args: [start, event.text]})
+              }
+              if (event.rangeLength > 0) {
+                ops.unshift({method: 'delete', args: [start, event.rangeLength]})
+              }
+            } else if (isUndoingOrRedoing) {
+              if (event.rangeLength > 0) {
+                ops.push({method: 'delete', args: [start, event.rangeLength]})
+              }
+              if (event.text.length > 0) {
+                ops.push({method: 'insert', args: [start, event.text]})
+              }
+            } else {
+              if (event.rangeLength > 0) {
+                // ops.splice(getDelPos(), 0, {method: 'delete', args: [start, event.rangeLength]})
+                ops.push({method: 'delete', args: [start+1, event.rangeLength]})
+              }
+              if (event.text.length > 0) {
+                ops.push({method: 'insert', args: [start, event.text]})
+              }
+            }
+            // overwrite => (del&ins)*
+            // alt+down => (del, ins)*
+            // alt+up => (ins, del)*
+            if (isFirstEdit) {
+              setTimeout(sendChanges, 1000)
             }
           })
         }
-        const monacoCallbackDisposable = monaco.onDidChangeModelContent(monacoCallback)
+        function monacoDidChangeCursorPosition (event) {
+          sendChanges()
+        }
+        function sendChanges(force) {
+          if (ops.length > 0) {
+            mutualExcluse(function () {
+              sendChangesInternal()
+            })
+          }
+        }
+        function sendChangesInternal() {
+          /* ops.sort((x, y) => {
+            if (x.method == y.method) return x.args[0] - y.args[0]
+            return x.method > y.method
+          })*/
+          const o = ops.shift()
+          self[o.method](o.args[0], o.args[1])
+          if(ops.length > 0) {
+            setTimeout(sendChanges, 1000)
+          }
+          // ops.forEach(o => self[o.method](o.args[0], o.args[1]))
+          // console.log(ops)
+          // ops = []
+        }
+        
+        const monacoCallbackDisposables = [
+          monaco.onDidChangeModelContent(monacoDidChangeModelContent),
+          monaco.onDidChangeCursorPosition(monacoDidChangeCursorPosition),
+        ]
 
         function yCallback (event) {
           mutualExcluse(function () {
@@ -174,7 +240,7 @@ function extend (Y) {
         this.monacoInstances.push({
           editor: monaco,
           yCallback: yCallback,
-          monacoCallbackDisposable: monacoCallbackDisposable
+          monacoCallbackDisposables: monacoCallbackDisposables
         })
       }
       bind () {
