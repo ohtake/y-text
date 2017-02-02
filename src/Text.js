@@ -114,7 +114,7 @@ function extend (Y) {
           this.monacoInstances.splice(i, 1)
         }
       }
-      unbindMonacoAll (ace) {
+      unbindMonacoAll () {
         for (let i = this.monacoInstances.length - 1; i >= 0; i--) {
           this.unbindMonaco(this.monacoInstances[i].editor)
         }
