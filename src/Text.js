@@ -10,6 +10,7 @@ function extend (Y) {
         super(os, _model, _content)
         this.textfields = []
         this.aceInstances = []
+        this.monacoInstances = []
       }
       toString () {
         return this._content.map(function (c) {
@@ -22,6 +23,7 @@ function extend (Y) {
       unbindAll () {
         this.unbindTextareaAll()
         this.unbindAceAll()
+        this.unbindMonacoAll()
       }
       unbindAce (ace) {
         var i = this.aceInstances.findIndex(function (binding) {
@@ -101,12 +103,88 @@ function extend (Y) {
           aceCallback: aceCallback
         })
       }
+      unbindMonaco (monaco) {
+        const i = this.monacoInstances.findIndex(function (binding) {
+          return binding.editor === monaco
+        })
+        if (i >= 0) {
+          const binding = this.monacoInstances[i]
+          this.unobserve(binding.yCallback)
+          binding.monacoCallbackDisposable.dispose()
+          this.monacoInstances.splice(i, 1)
+        }
+      }
+      unbindMonacoAll (ace) {
+        for (let i = this.monacoInstances.length - 1; i >= 0; i--) {
+          this.unbindMonaco(this.monacoInstances[i].editor)
+        }
+      }
+      bindMonaco (monaco, options) {
+        const self = this
+
+        // this function makes sure that either the
+        // ace event is executed, or the yjs observer is executed
+        let token = true
+        function mutualExcluse (f) {
+          if (token) {
+            token = false
+            try {
+              f()
+            } catch (e) {
+              token = true
+              throw new Error(e)
+            }
+            token = true
+          }
+        }
+        monaco.getModel().setValue(this.toString())
+
+        function monacoCallback (event) {
+          mutualExcluse(function () {
+            const start = monaco.getModel().getOffsetAt({lineNumber: event.range.startLineNumber, column: event.range.startColumn}, 0)
+            if (event.rangeLength > 0) {
+              self.delete(start, event.rangeLength)
+            }
+            if (event.text.length > 0) {
+              self.insert(start, event.text)
+            }
+          })
+        }
+        const monacoCallbackDisposable = monaco.onDidChangeModelContent(monacoCallback)
+
+        function yCallback (event) {
+          mutualExcluse(function () {
+            const model = monaco.getModel()
+            const start = model.getPositionAt(event.index)
+            if (event.type === 'insert') {
+              model.pushEditOperations(model.cursorState, [{
+                range: {startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: start.lineNumber, endColumn: start.column},
+                text: event.values.join('')
+              }], function () {})
+            } else if (event.type === 'delete') {
+              const end = model.getPositionAt(event.index + event.length)
+              model.pushEditOperations(model.cursorState, [{
+                range: {startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column},
+                text: ''
+              }], function () {})
+            }
+          })
+        }
+        this.observe(yCallback)
+        this.monacoInstances.push({
+          editor: monaco,
+          yCallback: yCallback,
+          monacoCallbackDisposable: monacoCallbackDisposable
+        })
+      }
       bind () {
         var e = arguments[0]
         if (e instanceof Element) {
           this.bindTextarea.apply(this, arguments)
         } else if (e != null && e.session != null && e.getSession != null && e.setValue != null) {
           this.bindAce.apply(this, arguments)
+        } else if (e != null && e.getModel != null && e.onDidChangeModelContent != null) {
+          this.bindMonaco.apply(this, arguments)
         } else {
           console.error('Cannot bind, unsupported editor!')
         }
