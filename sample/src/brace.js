@@ -27,6 +27,7 @@ window.addEventListener('load', () => {
         textarea: 'Text'
     }
   }).then(function(y) {
+    editor.require = brace.acequire;
     y.share.textarea.bind(editor);
   })
 });
